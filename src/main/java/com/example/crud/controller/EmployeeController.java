@@ -25,6 +25,16 @@ public class EmployeeController {
         return ResponseEntity.status(HttpStatus.CREATED).body(service.create(employee));
     }
 
+    @GetMapping("/health")
+    public ResponseEntity<Map<String, String>> health() {
+        return ResponseEntity.ok(
+                Map.of(
+                        "status", "UP",
+                        "message", "Spring Boot CI/CD is working"
+                )
+        );
+    }
+
     @GetMapping
     public List<Employee> getAll(@RequestParam(required = false) String department) {
         return (department == null || department.isBlank())
