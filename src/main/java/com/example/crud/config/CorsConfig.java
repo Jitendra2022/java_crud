@@ -16,7 +16,8 @@ public class CorsConfig {
                 registry.addMapping("/api/**")
                         .allowedOrigins(
                                 "http://localhost:5173",
-                                "https://www.jitendra.sbs"
+                                "https://www.jitendra.sbs",
+                                "https://java-crud-frontend.onrender.com"
                         )
                         .allowedMethods(
                                 "GET", "POST", "PUT",
