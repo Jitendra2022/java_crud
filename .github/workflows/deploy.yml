@@ -26,7 +26,7 @@ jobs:
 
     steps:
       - name: Download JAR artifact from CI
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: spring-boot-jar
           path: artifact
