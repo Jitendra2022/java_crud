@@ -82,32 +82,56 @@ jobs:
 
             test -f "$NEW_JAR"
 
-            HAD_OLD_JAR=false
-
+            # Save the current JAR before deployment
             if [ -f "$JAR" ]; then
               cp -p "$JAR" "$BACKUP"
-              HAD_OLD_JAR=true
             fi
 
+            # Install the new JAR
             mv "$NEW_JAR" "$JAR"
 
-            if sudo systemctl restart springboot-mysql-crud &&
-               sudo systemctl is-active --quiet springboot-mysql-crud &&
-               curl -fsS --max-time 20 \
-                 http://127.0.0.1:8080/api/employees >/dev/null; then
+            # Restart Spring Boot
+            sudo systemctl restart springboot-mysql-crud
 
-              echo "Deployment successful"
+            # Wait up to approximately 60 seconds for the API
+            for i in $(seq 1 30); do
+              if curl -fsS --max-time 2 \
+                http://127.0.0.1:8080/api/employees >/dev/null; then
 
-            else
-              echo "Deployment failed. Attempting rollback."
-
-              if [ "$HAD_OLD_JAR" = true ]; then
-                cp -p "$BACKUP" "$JAR"
-                sudo systemctl restart springboot-mysql-crud
+                echo "Deployment successful"
+                exit 0
               fi
 
-              exit 1
+              sleep 2
+            done
+
+            echo "Deployment failed. Recent application logs:"
+            sudo journalctl \
+              -u springboot-mysql-crud \
+              -n 50 --no-pager || true
+
+            # Restore the previous JAR if available
+            if [ -f "$BACKUP" ]; then
+              echo "Rolling back to previous JAR"
+
+              cp -p "$BACKUP" "$JAR"
+              sudo systemctl restart springboot-mysql-crud
+
+              # Wait for the old version to start
+              for i in $(seq 1 30); do
+                if curl -fsS --max-time 2 \
+                  http://127.0.0.1:8080/api/employees >/dev/null; then
+                  echo "Rollback successful"
+                  break
+                fi
+
+                sleep 2
+              done
+            else
+              echo "No previous JAR backup available"
             fi
+
+            exit 1
           REMOTE
 
       - name: Cleanup SSH key
