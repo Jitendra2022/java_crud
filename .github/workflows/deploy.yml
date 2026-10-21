@@ -1,0 +1,115 @@
+
+name: Spring Boot Deploy
+
+on:
+  workflow_run:
+    workflows:
+      - Spring Boot CI
+    types:
+      - completed
+    branches:
+      - master
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to EC2
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'master' &&
+      github.event.workflow_run.event == 'push'
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download JAR artifact from CI
+        uses: actions/download-artifact@v4
+        with:
+          name: spring-boot-jar
+          path: artifact
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify downloaded JAR
+        run: |
+          test -f artifact/springboot-mysql-crud-1.0.0.jar
+          ls -lh artifact/springboot-mysql-crud-1.0.0.jar
+
+      - name: Configure SSH
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          set -eu
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Upload JAR to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          scp -i ~/.ssh/deploy_key \
+            -o BatchMode=yes \
+            artifact/springboot-mysql-crud-1.0.0.jar \
+            "$EC2_USER@$EC2_HOST:/home/ubuntu/mypro/app.jar.new"
+
+      - name: Deploy and health check
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            -o BatchMode=yes \
+            "$EC2_USER@$EC2_HOST" 'bash -se' <<'REMOTE'
+            set -eu
+
+            cd /home/ubuntu/mypro
+
+            JAR="springboot-mysql-crud-1.0.0.jar"
+            NEW_JAR="app.jar.new"
+            BACKUP="${JAR}.bak"
+
+            test -f "$NEW_JAR"
+
+            HAD_OLD_JAR=false
+
+            if [ -f "$JAR" ]; then
+              cp -p "$JAR" "$BACKUP"
+              HAD_OLD_JAR=true
+            fi
+
+            mv "$NEW_JAR" "$JAR"
+
+            if sudo systemctl restart springboot-mysql-crud &&
+               sudo systemctl is-active --quiet springboot-mysql-crud &&
+               curl -fsS --max-time 20 \
+                 http://127.0.0.1:8080/api/employees >/dev/null; then
+
+              echo "Deployment successful"
+
+            else
+              echo "Deployment failed. Attempting rollback."
+
+              if [ "$HAD_OLD_JAR" = true ]; then
+                cp -p "$BACKUP" "$JAR"
+                sudo systemctl restart springboot-mysql-crud
+              fi
+
+              exit 1
+            fi
+          REMOTE
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

@@ -1,0 +1,18 @@
+# Spring Boot configuration
+src/main/resources/application.properties
+
+# Build files
+target/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# IDE files
+.idea/
+.vscode/
+*.iml
+
+# Logs
+*.log
